@@ -153,7 +153,7 @@ impl Ancestry {
         if target == self.active_root {
             return Err(prune::Error::NoChange);
         }
-        if !self.is_descendant(self.active_root, target) {
+        if !self.is_descendant(target, self.active_root) {
             return Err(prune::Error::NotADescendant);
         }
         if self.active_clade_extinct() {
@@ -166,6 +166,7 @@ impl Ancestry {
                 ceded.push(id);
             }
         }
+        self.active_root = target;
         Ok(ceded)
     }
 
@@ -195,7 +196,7 @@ impl Ancestry {
             .collect()
     }
 
-    pub fn rivals(&self, id: node::Id) -> Vec<node::Id> {
+    pub fn rivals(&self) -> Vec<node::Id> {
         let mine = self.subtree(self.active_root);
         self.nodes
             .iter()
@@ -213,5 +214,74 @@ impl Ancestry {
             c = self.nodes[p.get()].parent;
         }
         depth
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    #[test]
+    fn alive_counts_propagate() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        let y = a.spawn(root, "y", 1);
+        let x1 = a.spawn(x, "x1", 2);
+        assert_eq!(a.node(root).alive_count, 4);
+        assert_eq!(a.node(x).alive_count, 2);
+        a.kill(x1, 3);
+        assert_eq!(a.node(x).alive_count, 1);
+        assert_eq!(a.node(root).alive_count, 3);
+        a.kill(y, 3);
+        assert_eq!(a.node(root).alive_count, 2);
+    }
+    #[test]
+    fn kill_is_idempotent() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        a.kill(x, 2);
+        a.kill(x, 3);
+        assert_eq!(a.node(root).alive_count, 1);
+    }
+    #[test]
+    fn pruning_narrows_the_clade_and_cedes_the_rest() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        let y = a.spawn(root, "y", 1);
+        let ceded = a.prune_to(x).unwrap();
+        assert!(ceded.contains(&y));
+        assert!(ceded.contains(&root));
+        assert_eq!(a.active_root(), x);
+        // The ceded branch is still alive in the world, just not yours.
+        assert!(a.is_alive(y));
+        assert!(a.rivals().contains(&y));
+    }
+    #[test]
+    fn pruning_sideways_is_rejected() {
+        // Pruning sideways is not allowed: you must prune to a descendant.
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        let y = a.spawn(root, "y", 1);
+        // Narrow into `x`, which cedes `y`. `y` is now a sibling branch, not ours.
+        a.prune_to(x).unwrap();
+        assert_eq!(a.prune_to(y), Err(prune::Error::NotADescendant));
+        assert_eq!(a.active_root(), x);
+    }
+    #[test]
+    fn individual_death_and_clade_extinction_are_one_check() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        let _y = a.spawn(root, "y", 1);
+        a.prune_to(x).unwrap();
+        assert!(!a.active_clade_extinct());
+        // The individual dies with no heirs. Run over, even though `y` lives on
+        // as a rival: you traded that branch away when you transferred.
+        a.kill(x, 5);
+        assert!(a.active_clade_extinct());
     }
 }
