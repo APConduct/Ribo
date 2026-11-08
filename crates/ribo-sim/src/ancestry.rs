@@ -215,3 +215,42 @@ impl Ancestry {
         depth
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alive_counts_propagate() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        let y = a.spawn(root, "y", 1);
+        let x1 = a.spawn(x, "x1", 2);
+
+        assert_eq!(a.node(root).alive_count, 4);
+        assert_eq!(a.node(x).alive_count, 2);
+
+        a.kill(x1, 3);
+        assert_eq!(a.node(x).alive_count, 1);
+        assert_eq!(a.node(root).alive_count, 3);
+
+        a.kill(y, 3);
+        assert_eq!(a.node(root).alive_count, 2);
+    }
+
+    #[test]
+    fn kill_is_idempotent() {
+        let mut a = Ancestry::new("origin", 0);
+        let root = a.root();
+        let x = a.spawn(root, "x", 1);
+        a.kill(x, 2);
+        a.kill(x, 3);
+        assert_eq!(a.node(root).alive_count, 1);
+    }
+
+    #[test]
+    fn pruning_narrows_the_clade_and_cedes_the_rest() {
+        let mut a = Ancestry::new("origin", 0);
+    }
+}
